@@ -150,6 +150,55 @@ def graficar_sensibilidad(medias_a):
     fig.savefig(os.path.join(CARPETA, "fig_sensibilidad_a.png"), dpi=150)
 
 
+def graficar_r1():
+    """Calendario de r1 = a - t*a/T para los valores de a del análisis de sensibilidad."""
+    t = np.arange(1, N_ITER + 1)
+    fig, ax = plt.subplots(figsize=(7.2, 3.3))
+    for a in A_SENSIBILIDAD:
+        ax.plot(t, a - (t - 1) * a / N_ITER, lw=2, label=f"a = {a}")
+    ax.axhline(1.0, color="k", ls="--", lw=1)
+    ax.text(2, 1.07, "r1 = 1 (frontera exploración / explotación)", ha="left", fontsize=8)
+    ax.set_xlabel("Iteración t"); ax.set_ylabel("r1")
+    ax.set_title("Evolución de r1 = a - t·a/T en el SCA")
+    ax.grid(alpha=0.3); ax.legend()
+    fig.tight_layout()
+    fig.savefig(os.path.join(CARPETA, "fig_r1_calendario.png"), dpi=150)
+
+
+def ultima_mejora(curvas):
+    """Iteración (1 a n_iter) de la última mejora estricta de cada corrida."""
+    salida = []
+    for fila in curvas:
+        d = np.where(np.diff(fila) < 0)[0]
+        salida.append(int(d[-1]) + 2 if len(d) else 1)
+    return salida
+
+
+def tablas_apoyo(todas):
+    """Tablas de apoyo al análisis (paso 8): medias por iteración, finales por semilla,
+    comparación pareada por semilla y última iteración con mejora."""
+    its = (1, 5, 10, 25, 50, 75, 100)
+    nombres = ["SCA a=2", "PSO", "GA", "SCA a=1", "SCA a=3"]
+    guardar_tabla("tabla_iteraciones.csv",
+                  [[n] + [fmt(todas[n].mean(axis=0)[k - 1]) for k in its] for n in nombres],
+                  ["Algoritmo"] + [f"it {k}" for k in its])
+    guardar_tabla("tabla_finales_por_semilla.csv",
+                  [[s] + [fmt(todas[n][i, -1]) for n in nombres] for i, s in enumerate(SEMILLAS)],
+                  ["Semilla"] + nombres)
+    final = {n: c[:, -1] for n, c in todas.items()}
+    pares = [("SCA a=2", "PSO"), ("SCA a=2", "GA"), ("PSO", "GA"), ("GA", "PSO"),
+             ("SCA a=1", "SCA a=3"), ("SCA a=3", "SCA a=1"),
+             ("SCA a=1", "SCA a=2"), ("SCA a=3", "SCA a=2")]
+    pareada = {f"{p} < {q}": int(np.sum(final[p] < final[q])) for p, q in pares}
+    guardar_tabla("tabla_pareada.csv", [[k, v] for k, v in pareada.items()],
+                  ["Comparación (f final menor)", "Semillas de 10"])
+    um = {n: ultima_mejora(todas[n]) for n in nombres}
+    guardar_tabla("tabla_ultima_mejora.csv",
+                  [[n, float(np.median(v)), min(v), max(v)] for n, v in um.items()],
+                  ["Algoritmo", "Mediana", "Mínimo", "Máximo"])
+    return {"pareada": pareada, "ultima_mejora": um}
+
+
 def main():
     print("=" * 70)
     print("Problema: Rastrigin F3 desplazada, dim =", DIM, " s =", S,
@@ -170,12 +219,13 @@ def main():
     print("\nEvaluaciones (sin inicialización):", presupuesto, "| tope =", N_POB * N_ITER)
 
     # ---- Paso 4: experimento principal ----
-    resultados, medias, filas = {}, {}, []
+    resultados, medias, filas, todas = {}, {}, [], {}
     for nombre, alg in ALGORITMOS.items():
         curvas, xs, fs = ejecutar(alg)
         np.save(os.path.join(CARPETA, f"curvas_{nombre}.npy"), curvas)      # matriz 10 x 100
         graficar_convergencia(nombre, curvas, COLORES[nombre])               # paso 5
         medias[nombre] = curvas.mean(axis=0)
+        todas[nombre] = curvas
         resultados[nombre] = estadisticas(curvas, xs, fs)
         filas.append(fila_tabla(nombre, resultados[nombre]))
     graficar_comparacion(medias)
@@ -188,9 +238,12 @@ def main():
         curvas, xs, fs = ejecutar(alg)
         np.save(os.path.join(CARPETA, f"curvas_SCA_a{a}.npy"), curvas)
         medias_a[a] = curvas.mean(axis=0)
+        todas[f"SCA a={a}"] = curvas
         sens[str(a)] = estadisticas(curvas, xs, fs)
         filas_a.append(fila_tabla(f"SCA a={a}", sens[str(a)]))
     graficar_sensibilidad(medias_a)
+    graficar_r1()
+    apoyo = tablas_apoyo(todas)
     guardar_tabla("tabla_sensibilidad.csv", filas_a, ENC_TABLA)
 
     # ---- Salida en consola y JSON para el informe ----
@@ -209,7 +262,7 @@ def main():
         print("     dist finales:", [float(fmt(v)) for v in e["dist_finales"]])
     with open(os.path.join(CARPETA, "resultados.json"), "w", encoding="utf-8") as fh:
         json.dump({"algoritmos": resultados, "sensibilidad": sens, "presupuesto": presupuesto,
-                   "traza_ok": bool(ok)}, fh, indent=2, ensure_ascii=False)
+                   "traza_ok": bool(ok), "apoyo": apoyo}, fh, indent=2, ensure_ascii=False)
     if MOSTRAR:
         plt.show()
     print("\nFiguras, tablas y curvas guardadas en:", os.path.abspath(CARPETA))
