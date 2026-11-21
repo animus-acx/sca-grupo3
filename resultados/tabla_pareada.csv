@@ -1,0 +1,9 @@
+Comparación (f final menor),Semillas de 10
+SCA a=2 < PSO,0
+SCA a=2 < GA,0
+PSO < GA,7
+GA < PSO,3
+SCA a=1 < SCA a=3,6
+SCA a=3 < SCA a=1,4
+SCA a=1 < SCA a=2,7
+SCA a=3 < SCA a=2,6
